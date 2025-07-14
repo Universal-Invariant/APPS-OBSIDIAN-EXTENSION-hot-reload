@@ -73,6 +73,7 @@ var HotReload = class extends import_obsidian.Plugin {
     this.pluginNames = {};
     this.enabledPlugins = /* @__PURE__ */ new Set();
     this.currentlyLoading = 0;
+    this.settingReloader = new SettingReloader(this);
     this.isSymlink = (() => {
       try {
         const { lstatSync } = require("fs");
@@ -119,14 +120,14 @@ var HotReload = class extends import_obsidian.Plugin {
       this.checkVersion(plugin);
     };
   }
-  async onload() {
-    await this.getPluginNames();
-    this.addCommand({
-      id: "scan-for-changes",
-      name: "Check plugins for changes and reload them",
-      callback: this.reindexPlugins
-    });
-    this.app.workspace.onLayoutReady(() => {
+  onload() {
+    this.app.workspace.onLayoutReady(async () => {
+      await this.getPluginNames();
+      this.addCommand({
+        id: "scan-for-changes",
+        name: "Check plugins for changes and reload them",
+        callback: this.reindexPlugins
+      });
       this.registerEvent(this.app.vault.on("raw", this.onFileChange));
       this.watch(this.app.plugins.getPluginFolder());
     });
@@ -164,6 +165,7 @@ var HotReload = class extends import_obsidian.Plugin {
     const plugins = this.app.plugins;
     if (!plugins.enabledPlugins.has(plugin))
       return;
+    this.settingReloader.onPluginDisable(plugin);
     await plugins.disablePlugin(plugin);
     console.debug("disabled", plugin);
     const oldDebug = localStorage.getItem("debug-plugin");
@@ -211,3 +213,49 @@ function taskQueue() {
     );
   };
 }
+var SettingReloader = class extends import_obsidian.Component {
+  constructor(plugin) {
+    super();
+    this.plugin = plugin;
+    this.app = this.plugin.app;
+    this.left = 0;
+    this.top = 0;
+    this.lastTab = void 0;
+  }
+  /**
+   * Is the plugin's setting tab active and on-screen?  If so, save its scroll
+   * position and set it up to refresh after load.
+   */
+  onPluginDisable(pluginID) {
+    if (this.app.setting.activeTab?.id === pluginID && this.app.setting.containerEl.isShown()) {
+      const { scrollTop: top, scrollLeft: left } = this.app.setting.activeTab.containerEl;
+      this.lastTab = pluginID;
+      this.left = left;
+      this.top = top;
+      this.load();
+    }
+  }
+  onload() {
+    const self = this;
+    this.plugin.addChild(this);
+    this.register(around(import_obsidian.Plugin.prototype, {
+      addSettingTab(next) {
+        return function(tab, ...args) {
+          next.call(this, tab, ...args);
+          if (self.lastTab && this.manifest.id === self.lastTab) {
+            const { lastTab, left, top } = self;
+            self.lastTab = void 0;
+            setTimeout(() => {
+              if (self.lastTab || // another state was saved
+              !this.app.setting.containerEl.isShown() || // settings not open
+              this.app.setting.activeTab)
+                return;
+              this.app.setting.openTabById(lastTab);
+              tab.containerEl.scrollTo({ left, top });
+            }, 100);
+          }
+        };
+      }
+    }));
+  }
+};

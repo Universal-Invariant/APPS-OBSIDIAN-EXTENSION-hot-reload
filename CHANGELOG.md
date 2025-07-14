@@ -1,8 +1,10 @@
 # Changelog
 
-### 0.2.2 (Unreleased)
+### 0.2.2 (2025-07-14)
 - Fix errors when a watched plugin is deleted on disk
 - Update build target to ES2021
+- Reload/refresh open setting tab for reloaded plugins (Fix [#27]([#1](https://github.com/pjeby/hot-reload/pull/27)), thanks [@mnaoumov](https://github.com/mnaoumov))
+- Fix [#26](https://github.com/pjeby/hot-reload/issues/26) - 0.2.1 sometimes doesn't reload without explicit refresh when vault is freshly opened
 
 ### 0.2.1 (2025-03-09)
 - Add change log

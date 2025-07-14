@@ -1,4 +1,4 @@
-import { Plugin, Notice, debounce, Platform, requireApiVersion, App } from "obsidian";
+import { Plugin, Notice, debounce, Platform, requireApiVersion, App, Component } from "obsidian";
 import { around } from "monkey-around"
 
 const watchNeeded = !Platform.isMacOS && !Platform.isWin;
@@ -15,14 +15,16 @@ export default class HotReload extends Plugin {
     enabledPlugins = new Set<string>()
     currentlyLoading = 0
 
-    async onload() {
-        await this.getPluginNames();
-        this.addCommand({
-            id: "scan-for-changes",
-            name: "Check plugins for changes and reload them",
-            callback: this.reindexPlugins
-        })
-        this.app.workspace.onLayoutReady(() => {
+    settingReloader = new SettingReloader(this)
+
+    onload() {
+        this.app.workspace.onLayoutReady(async () => {
+            await this.getPluginNames();
+            this.addCommand({
+                id: "scan-for-changes",
+                name: "Check plugins for changes and reload them",
+                callback: this.reindexPlugins
+            })
             this.registerEvent( this.app.vault.on("raw", this.onFileChange));
             this.watch(this.app.plugins.getPluginFolder());
         });
@@ -109,6 +111,8 @@ export default class HotReload extends Plugin {
         // Don't reload disabled plugins
         if (!plugins.enabledPlugins.has(plugin)) return;
 
+        this.settingReloader.onPluginDisable(plugin);
+
         await plugins.disablePlugin(plugin);
         console.debug("disabled", plugin);
 
@@ -151,6 +155,59 @@ function taskQueue() {
     }
 }
 
+/**
+ * Reload the settings tab (and scroll position) of a setting tab
+ */
+class SettingReloader extends Component {
+    constructor(public plugin: Plugin) { super(); }
+
+    app = this.plugin.app
+    left = 0
+    top = 0
+    lastTab: string = undefined
+
+    /**
+     * Is the plugin's setting tab active and on-screen?  If so, save its scroll
+     * position and set it up to refresh after load.
+     */
+    onPluginDisable(pluginID: string) {
+        if (this.app.setting.activeTab?.id === pluginID && this.app.setting.containerEl.isShown()) {
+            const {scrollTop: top, scrollLeft: left} = this.app.setting.activeTab.containerEl;
+            this.lastTab = pluginID;
+            this.left = left;
+            this.top = top;
+            // set up the hook to detect the setting tab registration (if not already set up)
+            this.load();
+        }
+    }
+
+    onload() {
+        const self = this;
+        this.plugin.addChild(this) // ensure we unload when hot-reload does
+        this.register(around(Plugin.prototype, {
+            addSettingTab(next) {
+                return function(this: Plugin, tab, ...args: any[]) {
+                    next.call(this, tab, ...args);
+                    if (self.lastTab && this.manifest.id === self.lastTab) {
+                        const {lastTab, left, top} = self;
+                        // only try this once per plugin id per disable
+                        self.lastTab = undefined;
+                        setTimeout(() => {
+                            if (
+                                self.lastTab ||  // another state was saved
+                                !this.app.setting.containerEl.isShown() ||  // settings not open
+                                this.app.setting.activeTab  // not on the previously-closed tab
+                            ) return;
+                            this.app.setting.openTabById(lastTab);
+                            tab.containerEl.scrollTo({left, top});
+                        }, 100)
+                    }
+                }
+            }
+        }));
+    }
+}
+
 declare module "obsidian" {
     interface Vault {
         exists(path: string): Promise<boolean>
@@ -168,6 +225,12 @@ declare module "obsidian" {
             enablePlugin(plugin: string): Promise<void>
             disablePlugin(plugin: string): Promise<void>
             enabledPlugins: Set<string>
+            plugins: Record<string, Plugin>
+        }
+        setting: {
+            activeTab: SettingTab & { id: string } | null
+            containerEl: HTMLElement
+            openTabById(id: string): SettingTab | null
         }
     }
 }
