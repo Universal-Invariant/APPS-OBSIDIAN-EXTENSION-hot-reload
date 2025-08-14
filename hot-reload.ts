@@ -1,4 +1,4 @@
-import { Plugin, Notice, debounce, Platform, requireApiVersion, App, Component } from "obsidian";
+import { Plugin, Notice, debounce, Platform, requireApiVersion, App, Component, FileSystemAdapter } from "obsidian";
 import { around } from "monkey-around"
 
 const watchNeeded = !Platform.isMacOS && !Platform.isWin;
@@ -31,16 +31,17 @@ export default class HotReload extends Plugin {
     }
 
     async watch(path: string) {
-        if (this.app.vault.adapter.watchers?.hasOwnProperty(path)) return;
-        if ((await this.app.vault.adapter.stat(path))?.type !== "folder") return;
-        if (watchNeeded || this.isSymlink(path)) this.app.vault.adapter.startWatchPath(path, false);
+        const {adapter} = this.app.vault;
+        if (!(adapter instanceof FileSystemAdapter) || adapter.watchers?.hasOwnProperty(path)) return;
+        if ((await adapter.stat(path))?.type !== "folder") return;
+        if (watchNeeded || this.isSymlink(adapter, path)) adapter.startWatchPath(path);
     }
 
     isSymlink = (() => {
         try {
             const {lstatSync} = require('fs');
-            return (path: string) => {
-                const realPath = [this.app.vault.adapter.basePath, path].join("/");
+            return (adapter: FileSystemAdapter, path: string) => {
+                const realPath = [adapter.basePath, path].join("/");
                 const lstat = lstatSync(realPath, {throwIfNoEntry: false});
                 return lstat && lstat.isSymbolicLink();
             }
@@ -213,10 +214,10 @@ declare module "obsidian" {
         exists(path: string): Promise<boolean>
         on(type: "raw", handler: (filename: string) => void): EventRef
     }
-    interface DataAdapter {
+    interface FileSystemAdapter {
         basePath: string
         watchers: Record<string, unknown>
-        startWatchPath(path: string, flag: boolean): void
+        startWatchPath(path: string): void
     }
     interface App {
         plugins: {

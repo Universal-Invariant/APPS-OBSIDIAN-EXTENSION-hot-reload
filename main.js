@@ -77,8 +77,8 @@ var HotReload = class extends import_obsidian.Plugin {
     this.isSymlink = (() => {
       try {
         const { lstatSync } = require("fs");
-        return (path) => {
-          const realPath = [this.app.vault.adapter.basePath, path].join("/");
+        return (adapter, path) => {
+          const realPath = [adapter.basePath, path].join("/");
           const lstat = lstatSync(realPath, { throwIfNoEntry: false });
           return lstat && lstat.isSymbolicLink();
         };
@@ -133,12 +133,13 @@ var HotReload = class extends import_obsidian.Plugin {
     });
   }
   async watch(path) {
-    if (this.app.vault.adapter.watchers?.hasOwnProperty(path))
+    const { adapter } = this.app.vault;
+    if (!(adapter instanceof import_obsidian.FileSystemAdapter) || adapter.watchers?.hasOwnProperty(path))
       return;
-    if ((await this.app.vault.adapter.stat(path))?.type !== "folder")
+    if ((await adapter.stat(path))?.type !== "folder")
       return;
-    if (watchNeeded || this.isSymlink(path))
-      this.app.vault.adapter.startWatchPath(path, false);
+    if (watchNeeded || this.isSymlink(adapter, path))
+      adapter.startWatchPath(path);
   }
   checkVersions() {
     return Promise.all(Object.values(this.pluginNames).map(this.checkVersion));

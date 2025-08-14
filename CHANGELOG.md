@@ -1,5 +1,8 @@
 # Changelog
 
+### 0.3.0 (2025-08-14)
+- Beta support for mobile, thanks to [@mnaoumov](https://github.com/mnaoumov) for testing and suggestions
+
 ### 0.2.2 (2025-07-14)
 - Fix errors when a watched plugin is deleted on disk
 - Update build target to ES2021
